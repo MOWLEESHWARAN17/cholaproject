@@ -33,6 +33,7 @@ class FieldModel(BaseModel):
 class SchemaModel(BaseModel):
     schema_name: str
     fields: List[FieldModel]
+    created_at: str
 
 async def get_schemas() -> List[SchemaModel]:
     schemas = []
@@ -151,5 +152,17 @@ async def add_schema(schema: SchemaModel = Body(...)) -> Dict[str, Any]:
 @app.get("/")
 async def root():
     return {"message": "Welcome to the MASTERLIST API!"}
+
+@app.get("/get-schema/{schema_name}", response_model=SchemaModel)
+async def get_schema(schema_name: str) -> Dict[str, Any]:
+    """
+    Retrieve a schema by its name.
+    """
+    schema = await get_schema_by_name(schema_name)
+    schema_dict = schema.dict()
+    schema_dict["created_at"] = datetime.strptime(schema_dict["created_at"], "%d/%m/%y").strftime("%Y-%m-%d %H:%M:%S")
+    return schema_dict
+
+
 
 app.add_event_handler("startup", setup_routes)

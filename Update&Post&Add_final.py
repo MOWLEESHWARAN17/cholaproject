@@ -90,6 +90,14 @@ def generate_routes_from_schema(schema: SchemaModel):
                # Check if the field exists in the schema's collection
                existing_item = await lcollection.find_one({"_id": object_id})
                if existing_item:
+                    # Check uniqueness if the field is marked as unique
+                    for field in schema.fields:
+                         if field.col_name == field_to_update and field.unique.upper() == "Y":
+                              existing_item_with_value = await lcollection.find_one({field_to_update: item[field_to_update]})
+                              if existing_item_with_value and existing_item_with_value["_id"] != object_id:
+                                   raise HTTPException(status_code=400, detail=f"{field_to_update} must be unique")
+                              break
+                    
                     # Update the field
                     await lcollection.update_one({"_id": object_id}, {"$set": {field_to_update: item[field_to_update]}})
                     return {"message": f"Field '{field_to_update}' updated successfully for item with ID '{item_id}'"}
@@ -97,8 +105,7 @@ def generate_routes_from_schema(schema: SchemaModel):
                     return {"message": f"No item found with ID '{item_id}' in collection '{schema_name}'"}
           else:
                return {"message": f"Schema '{schema_name}' not found"}
-
-               
+                         
 
 
 app.add_event_handler("startup", setup_routes)

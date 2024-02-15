@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Union
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, Query
 from pydantic import BaseModel, create_model, ConstrainedStr
 from motor.motor_asyncio import AsyncIOMotorClient
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +27,7 @@ class UniqueFlag(ConstrainedStr):
 
 class FieldModel(BaseModel):
     col_name: str
-    type: Union[int, str, bool, float]
+    type: Union[int, str, bool, float,list]
     unique: UniqueFlag
 
 class SchemaModel(BaseModel):
@@ -82,12 +82,12 @@ def generate_routes_from_schema(schema: SchemaModel):
         return {"message": "Item added successfully"}
 
     @app.get(f"/{schema_name}/", response_model=List[CustomModel], tags=[schema_name])
-    async def get_items() -> List[Dict[str, Any]]:
+    async def get_items(skip: int = 0, limit: int = 10) -> List[Dict[str, Any]]:
         """
-        Retrieve all items for a specific schema.
+        Retrieve paginated items for a specific schema.
         """
         items = []
-        async for document in db[schema_name].find({}):
+        async for document in db[schema_name].find({}).skip(skip).limit(limit):
             items.append(CustomModel(**document))
         return items
 

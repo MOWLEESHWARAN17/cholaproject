@@ -163,6 +163,14 @@ async def get_schema(schema_name: str) -> Dict[str, Any]:
     schema_dict["created_at"] = datetime.strptime(schema_dict["created_at"], "%d/%m/%y").strftime("%Y-%m-%d %H:%M:%S")
     return schema_dict
 
+@app.get("/get-schemas-with-date", response_model=List[Dict[str, str]])
+async def get_schemas_with_date():
+    """
+    Retrieve all schemas with their creation dates.
+    """
+    schemas = await get_schemas()
+    schemas_with_date = [{"schema_name": schema.schema_name, "created_at": schema.created_at} for schema in schemas]
+    return schemas_with_date
 
 
 app.add_event_handler("startup", setup_routes)

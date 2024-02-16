@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Schema</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        label {
+            font-weight: bold;
+        }
+        input[type="text"], select, button {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .field-group {
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+        .field-group label,
+        .field-group select,
+        .field-group input,
+        .field-group button {
+            margin-right: 10px;
+        }
+        .field-group input[type="checkbox"] {
+            margin-left: auto;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Add Schema</h2>
+        <form id="addSchemaForm">
+            <label for="schemaName">Schema Name:</label>
+            <input type="text" id="schemaName" required>
+            <div id="fieldsContainer"></div>
+            <button type="button" onclick="addField()">Add Field</button>
+            <button type="submit">Submit</button>
+        </form>
+    </div>
+
+    <script>
+        function addField() {
+            const fieldsContainer = document.querySelector("#fieldsContainer");
+
+            const fieldGroup = document.createElement("div");
+            fieldGroup.classList.add("field-group");
+            fieldGroup.innerHTML = `
+                <label for="fieldName">Field Name:</label>
+                <input type="text" class="fieldName" required>
+                <label for="fieldType">Field Type:</label>
+                <select class="fieldType" required>
+                    <option value="int">Integer</option>
+                    <option value="str">String</option>
+                    <option value="bool">Boolean</option>
+                    <option value="float">Float</option>
+                    <option value="list">List</option>
+                    <option value="dict">Dictionary</option>
+                </select>
+                <label for="fieldUnique">Unique:</label>
+                <input type="checkbox" class="fieldUnique">
+                <button type="button" onclick="removeField(this)">Remove</button>
+            `;
+            fieldsContainer.appendChild(fieldGroup);
+        }
+
+        function removeField(button) {
+            button.parentNode.remove();
+        }
+
+        document.querySelector("#addSchemaForm").addEventListener("submit", async function(event) {
+            event.preventDefault();
+
+            const schemaName = document.querySelector("#schemaName").value;
+            const fields = [];
+            document.querySelectorAll(".field-group").forEach(group => {
+                const fieldName = group.querySelector(".fieldName").value;
+                const fieldType = group.querySelector(".fieldType").value;
+                const fieldUnique = group.querySelector(".fieldUnique").checked;
+                fields.push({ col_name: fieldName, type: fieldType, unique: fieldUnique ? "Y" : "N" });
+            });
+
+            const data = { schema_name: schemaName, fields: fields };
+
+            const response = await fetch("http://localhost:9000/add-schema/", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                alert("Schema added successfully");
+                // Optionally, clear the form
+                document.querySelector("#schemaName").value = "";
+                document.querySelectorAll(".field-group").forEach(group => group.remove());
+            } else {
+                const errorMessage = await response.text();
+                alert(errorMessage);
+            }
+        });
+    </script>
+</body>
+</html>

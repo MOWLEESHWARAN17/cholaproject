@@ -7,10 +7,12 @@
     <style>
         body {
             font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
         }
         .container {
-            max-width: 600px;
-            margin: 0 auto;
+            max-width: 1200px;
+            margin: 50px auto;
             padding: 20px;
             border: 1px solid #ccc;
             border-radius: 5px;
@@ -20,15 +22,33 @@
             font-weight: bold;
         }
         input[type="text"], select, button {
-            width: 100%;
-            padding: 8px;
-            margin: 5px 0;
+            width: calc(100% - 20px);
+            padding: 12px;
+            margin: 10px 0;
             border: 1px solid #ccc;
-            border-radius: 4px;
+            border-radius: 6px;
             box-sizing: border-box;
+            font-size: 16px;
         }
+        .fieldName {
+            width: calc(10% - 10px);
+        }
+
+        .fieldType {
+            width: calc(30% - 20px);
+            margin-right: 8cm;
+        }
+
+        .fieldUnique {
+            margin-left: 8cm;
+        }
+
+        .fieldElements {
+            display: none; /* Initially hide the elements input */
+        }
+
         .field-group {
-            margin-bottom: 10px;
+            margin-bottom: 20px;
             display: flex;
             align-items: center;
         }
@@ -36,7 +56,7 @@
         .field-group select,
         .field-group input,
         .field-group button {
-            margin-right: 10px;
+            margin-right: 20px;
         }
         .field-group input[type="checkbox"] {
             margin-left: auto;
@@ -45,11 +65,15 @@
             background-color: #4CAF50;
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
         }
         button:hover {
             background-color: #45a049;
+        }
+        .response {
+            margin-top: 20px;
+            text-align: center;
         }
     </style>
 </head>
@@ -63,6 +87,7 @@
             <button type="button" onclick="addField()">Add Field</button>
             <button type="submit">Submit</button>
         </form>
+        <div class="response" id="responseMessage"></div>
     </div>
 
     <script>
@@ -72,10 +97,10 @@
             const fieldGroup = document.createElement("div");
             fieldGroup.classList.add("field-group");
             fieldGroup.innerHTML = `
-                <label for="fieldName">Field Name:</label>
+                <label for="fieldName">Name:</label>
                 <input type="text" class="fieldName" required>
-                <label for="fieldType">Field Type:</label>
-                <select class="fieldType" required>
+                <label for="fieldType">Type:</label>
+                <select class="fieldType" required onchange="showElementsInput(this)">
                     <option value="int">Integer</option>
                     <option value="str">String</option>
                     <option value="bool">Boolean</option>
@@ -83,6 +108,7 @@
                     <option value="list">List</option>
                     <option value="dict">Dictionary</option>
                 </select>
+                <input type="text" class="fieldElements" placeholder="Enter elements (comma-separated)" style="display:none;">
                 <label for="fieldUnique">Unique:</label>
                 <input type="checkbox" class="fieldUnique">
                 <button type="button" onclick="removeField(this)">Remove</button>
@@ -94,6 +120,17 @@
             button.parentNode.remove();
         }
 
+        function showElementsInput(select) {
+            const elementsInput = select.parentNode.querySelector('.fieldElements');
+            if (select.value === 'list' || select.value === 'dict') {
+                elementsInput.style.display = 'block';
+                elementsInput.setAttribute('required', 'required');
+            } else {
+                elementsInput.style.display = 'none';
+                elementsInput.removeAttribute('required');
+            }
+        }
+
         document.querySelector("#addSchemaForm").addEventListener("submit", async function(event) {
             event.preventDefault();
 
@@ -103,7 +140,8 @@
                 const fieldName = group.querySelector(".fieldName").value;
                 const fieldType = group.querySelector(".fieldType").value;
                 const fieldUnique = group.querySelector(".fieldUnique").checked;
-                fields.push({ col_name: fieldName, type: fieldType, unique: fieldUnique ? "Y" : "N" });
+                const fieldElements = group.querySelector(".fieldElements")?.value || null;
+                fields.push({ col_name: fieldName, type: fieldType, unique: fieldUnique ? "Y" : "N", elements: fieldElements });
             });
 
             const data = { schema_name: schemaName, fields: fields };
@@ -116,14 +154,17 @@
                 body: JSON.stringify(data)
             });
 
+            const responseMessage = document.querySelector("#responseMessage");
             if (response.ok) {
-                alert("Schema added successfully");
+                responseMessage.textContent = "Schema added successfully";
+                responseMessage.style.color = "green";
                 // Optionally, clear the form
                 document.querySelector("#schemaName").value = "";
                 document.querySelectorAll(".field-group").forEach(group => group.remove());
             } else {
                 const errorMessage = await response.text();
-                alert(errorMessage);
+                responseMessage.textContent = errorMessage;
+                responseMessage.style.color = "red";
             }
         });
     </script>

@@ -100,8 +100,11 @@ def generate_routes_from_schema(schema: SchemaModel):
     fields = {field.col_name: field for field in schema.fields}
     CustomModel = create_model(schema_name, **{field.col_name: (field.type, ...) for field in schema.fields})
 
+    # Define tag for this schema
+    tag_name = schema_name
+
     #--------------Adding an item inside any schema--------------#
-    @app.post(f"/{schema_name}/")
+    @app.post(f"/{schema_name}/", tags=[tag_name])  # Adding tags here
     async def add_item(item_data: CustomModel = Body(...)) -> Dict[str, Any]:
         # Fetch the schema definition from the database based on the provided schema_name
         schema_definition = await collection.find_one({"schema_name": schema_name})
@@ -136,6 +139,31 @@ def generate_routes_from_schema(schema: SchemaModel):
         lc = db[schema_name]
         await lc.insert_one(item_data)
         return {"message": "Item added successfully"}
+
+    #--------------Get all items for a schema--------------#
+    @app.get(f"/{schema_name}/",tags=[tag_name])
+    async def get_items(schema_name: str) -> List[Dict[str, Any]]:
+        lc = db[schema_name]
+        items = await lc.find({}).to_list(length=None)
+        return items
+
+    #--------------Get a specific item within a schema--------------#
+    @app.get(f"/{schema_name}/{{item_id}}",tags=[tag_name])
+    async def get_item(schema_name: str, item_id: str) -> Dict[str, Any]:
+        lc = db[schema_name]
+        item = await lc.find_one({"_id": item_id})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        return item
+
+    #--------------Get all items for a schema--------------#
+    @app.get(f"/{schema_name}/", tags=[tag_name])  # Adding tags here
+    async def get_items() -> List[Dict[str, Any]]:
+        lc = db[schema_name]
+        items = await lc.find({}).to_list(length=None)
+        return items
+
+    # You can define other routes similarly
 
 #--------------Get all schemas--------------#
 @app.get("/get-schemas/", response_model=List[SchemaModel])

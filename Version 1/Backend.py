@@ -4,12 +4,14 @@ from pydantic import BaseModel, create_model
 from motor.motor_asyncio import AsyncIOMotorClient
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-from bson import json_util
+from bson import ObjectId
 
 app = FastAPI(title="MASTERLIST")
+
 client = AsyncIOMotorClient("mongodb://localhost:27017/")
 db = client["databasename"]
 collection = db["masterlist"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,7 +20,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#--------------Base Models--------------#
+
+#--------------Basemodels--------------#
+
 class FieldModel(BaseModel):
     col_name: str
     type: Union[str, Type[int], Type[str], Type[bool], Type[float], Type[List], Type[Dict[str, Any]]]
@@ -27,12 +31,14 @@ class FieldModel(BaseModel):
     allowed_values: Optional[List[str]] = None
     dict_keys: Optional[Dict[str, Any]] = None
 
+
 class SchemaModel(BaseModel):
     schema_name: str
     fields: List[FieldModel]
 
 #--------------Adding a New Schema--------------#
-@app.post("/add-schema/")
+
+@app.post("/add-schema/", tags=["{schema_name}"])
 async def add_schema(schema: SchemaModel = Body(...)) -> Dict[str, Any]:
     current_date = datetime.now().strftime("%d/%m/%Y")
     schema_dict = schema.dict()
@@ -59,7 +65,8 @@ async def add_schema(schema: SchemaModel = Body(...)) -> Dict[str, Any]:
     return {"message": "Schema added successfully"}
 
 #--------------Replacing fields in schema--------------#
-@app.put("/replace-schema-fields/{schema_name}")
+
+@app.put("/replace-schema-fields/{schema_name}", tags=["{schema_name}"])
 async def replace_schema_fields(schema_name: str, new_fields: List[Dict[str, Any]]) -> Dict[str, str]:
     existing_schema = await collection.find_one({"schema_name": schema_name})
     if not existing_schema:
@@ -80,7 +87,9 @@ async def replace_schema_fields(schema_name: str, new_fields: List[Dict[str, Any
     )
     return {"message": f"Schema '{schema_name}' fields replaced successfully"}
 
-#--------------Generate routing for adding data inside schema--------------#
+
+#--------------Generate routing for adding datas inside schema--------------#
+
 async def get_schemas() -> List[SchemaModel]:
     schemas = []
     async for document in collection.find({}):
@@ -91,83 +100,115 @@ async def get_schemas() -> List[SchemaModel]:
 async def setup_routes():
     schemas = await get_schemas()
     for schema in schemas:
-        generate_routes_from_schema(schema)
+        await generate_routes_from_schema(schema)
 
 app.add_event_handler("startup", setup_routes)
 
-def generate_routes_from_schema(schema: SchemaModel):
+
+async def find_existing_item(schema_name: str, col_name: str, value: Any) -> Optional[Dict[str, Any]]:
+    item = await collection.find_one({col_name: value})
+    return item
+
+async def generate_routes_from_schema(schema: SchemaModel):
     schema_name = schema.schema_name
     fields = {field.col_name: field for field in schema.fields}
-    CustomModel = create_model(schema_name, **{field.col_name: (field.type, ...) for field in schema.fields})
 
-    # Define tag for this schema
-    tag_name = schema_name
+    CustomModel = create_model(schema_name, **{field.col_name: (field.type, ...) for field in fields.values()})
 
-    #--------------Adding an item inside any schema--------------#
-    @app.post(f"/{schema_name}/", tags=[tag_name])  # Adding tags here
+    # Adding an item inside any schema
+    @app.post(f"/{schema_name}/", tags=[schema_name])
     async def add_item(item_data: CustomModel = Body(...)) -> Dict[str, Any]:
-        # Fetch the schema definition from the database based on the provided schema_name
-        schema_definition = await collection.find_one({"schema_name": schema_name})
-        if not schema_definition:
-            raise HTTPException(status_code=404, detail="Schema not found")
+     async def fetch_schema_definition(schema_name: str) -> SchemaModel:
+          schema_definition = await collection.find_one({"schema_name": schema_name})
+          if schema_definition:
+               return SchemaModel(**schema_definition)
+          else:
+               return None
 
-        # Validate uniqueness constraints for fields with unique=True
-        for field in schema_definition["fields"]:
-            if field["unique"]:
-                existing_item = await collection.find_one({field["col_name"]: item_data.get(field["col_name"])})
-                if existing_item:
-                    raise HTTPException(status_code=400, detail=f"{field['col_name']} must be unique")
+     schema_definition = await fetch_schema_definition(schema_name)
+     if not schema_definition:
+          raise HTTPException(status_code=404, detail="Schema not found")
 
-        # Validate list fields against allowed values
-        for field in schema_definition["fields"]:
-            if field["type"] == "list" and "allowed_values" in field:
-                allowed_values = field["allowed_values"]
-                field_value = item_data.get(field["col_name"])
-                if field_value not in allowed_values:
-                    raise HTTPException(status_code=400, detail=f"Invalid value for {field['col_name']}")
+     # Validate uniqueness constraints for fields with unique=True
+     for field in schema_definition.fields:
+          if field.unique:
+               # Check if the value already exists in the collection for fields with unique constraint
+               existing_item = await db[schema_name].find_one({field.col_name: item_data.dict().get(field.col_name)})
+               if existing_item:
+                    raise HTTPException(status_code=400, detail=f"{field.col_name} must be unique")
 
-        # Validate dict field keys against specified dict_keys
-        for field in schema_definition["fields"]:
-            if field["type"] == "dict" and "dict_keys" in field:
-                dict_keys = field["dict_keys"]
-                field_value = item_data.get(field["col_name"], {})
-                for key in field_value.keys():
-                    if key not in dict_keys:
-                        raise HTTPException(status_code=400, detail=f"Invalid key for {field['col_name']}: {key}")
+     # Validate list fields against allowed values
+     for field in schema_definition.fields:
+          if field.type == "list" and field.allowed_values:
+               field_value = item_data.dict().get(field.col_name)
+               if not all(value in field.allowed_values for value in field_value):
+                    raise HTTPException(status_code=400, detail=f"Invalid value for {field.col_name}")
 
-        # Insert the item data into the collection
-        lc = db[schema_name]
-        await lc.insert_one(item_data)
-        return {"message": "Item added successfully"}
+     # Validate dict field keys against specified dict_keys
+     for field in schema_definition.fields:
+          if field.type == "dict" and field.dict_keys:
+               field_value = item_data.dict().get(field.col_name, {})
+               for key in field_value.keys():
+                    if key not in field.dict_keys:
+                         raise HTTPException(status_code=400, detail=f"Invalid key for {field.col_name}: {key}")
 
-    #--------------Get all items for a schema--------------#
-    @app.get(f"/{schema_name}/",tags=[tag_name])
-    async def get_items(schema_name: str) -> List[Dict[str, Any]]:
-        lc = db[schema_name]
-        items = await lc.find({}).to_list(length=None)
+     # Insert the item data into the collection
+     await db[schema_name].insert_one(item_data.dict())
+     return {"message": "Item added successfully"}
+
+     # Get all items for the specified schema
+    @app.get(f"/{schema_name}/", response_model=List[CustomModel], tags=[schema_name])
+    async def get_items() -> List[CustomModel]:
+        items_cursor = db[schema_name].find({})
+        items = await items_cursor.to_list(length=None)
         return items
 
-    #--------------Get a specific item within a schema--------------#
-    @app.get(f"/{schema_name}/{{item_id}}",tags=[tag_name])
-    async def get_item(schema_name: str, item_id: str) -> Dict[str, Any]:
-        lc = db[schema_name]
-        item = await lc.find_one({"_id": item_id})
-        if not item:
-            raise HTTPException(status_code=404, detail="Item not found")
-        return item
+    # Get item by ID for the specified schema
+    @app.get(f"/{schema_name}/{{item_id}}", response_model=CustomModel, tags=[schema_name])
+    async def get_item_by_id(item_id: str) -> CustomModel:
+        item = await db[schema_name].find_one({"_id": ObjectId(item_id)})
+        if item:
+            return item
+        else:
+            raise HTTPException(status_code=404, detail=f"Item not found for ID: {item_id}")
 
-    #--------------Get all items for a schema--------------#
-    @app.get(f"/{schema_name}/", tags=[tag_name])  # Adding tags here
-    async def get_items() -> List[Dict[str, Any]]:
-        lc = db[schema_name]
-        items = await lc.find({}).to_list(length=None)
+    # Get all items for the specified schema
+    @app.get(f"/{schema_name}/fields/", response_model=List[Dict[str, Any]], tags=[schema_name])
+    async def get_items_by_fields(query_string: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve items for a specific schema based on provided query parameters.
+        """
+        print("Query String:", query_string)
+    
+        # Parse query parameters
+        query_pairs = query_string.split(",")
+        print("Query Pairs:", query_pairs)
+    
+        # Construct query dictionary
+        query = {}
+        for pair in query_pairs:
+            field, value = pair.split(":")
+            if field in fields:
+                query[field] = value
+    
+        print("Constructed Query:", query)
+    
+        # Fetch documents from the database matching the query
+        items = []
+        async for document in db[schema_name].find(query):
+            # Convert ObjectId to string
+            document["_id"] = str(document["_id"])
+            items.append(document)
+    
         return items
-
-    # You can define other routes similarly
 
 #--------------Get all schemas--------------#
-@app.get("/get-schemas/", response_model=List[SchemaModel])
+@app.get("/get-schemas/", response_model=List[SchemaModel], tags=["schemas"])
 async def get_schemas() -> List[SchemaModel]:
+    schemas = await get_schemas_from_db()
+    return schemas
+
+async def get_schemas_from_db() -> List[SchemaModel]:
     schemas = []
     async for document in collection.find({}):
         schema = SchemaModel(**document)
@@ -175,15 +216,22 @@ async def get_schemas() -> List[SchemaModel]:
     return schemas
 
 #--------------Get schema by name--------------#
-@app.get("/get-schema/{schema_name}/", response_model=SchemaModel)
+@app.get("/get-schema/{schema_name}/", response_model=SchemaModel, tags=["schemas"])
 async def get_schema_by_name(schema_name: str) -> SchemaModel:
-    schema = await collection.find_one({"schema_name": schema_name})
+    schema = await get_schema_from_db(schema_name)
     if not schema:
         raise HTTPException(status_code=404, detail="Schema not found")
-    return SchemaModel(**schema)
+    return schema
 
-#--------------Get schema with date--------------#
-@app.get("/get-schema-names-with-date/")
+async def get_schema_from_db(schema_name: str) -> Optional[SchemaModel]:
+    schema_document = await collection.find_one({"schema_name": schema_name})
+    if schema_document:
+        return SchemaModel(**schema_document)
+    else:
+        return None
+
+#--------------Get schema names with date--------------#
+@app.get("/get-schema-names-with-date/", tags=["schemas"])
 async def get_schema_names_with_date(page: int = Query(1, gt=0), page_size: int = Query(10, gt=0)) -> Dict[str, Any]:
     skip = (page - 1) * page_size
     schemas_cursor = collection.find({}, {"schema_name": 1, "created_at": 1, "_id": 0}).skip(skip).limit(page_size)

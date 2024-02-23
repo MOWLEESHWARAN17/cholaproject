@@ -1,5 +1,5 @@
 
-#--------------------LAST MODIFIED : 19/02/2024--------------------#
+#--------------------LAST MODIFIED : 23/02/2024--------------------#
 
 
 # Import necessary modules and libraries
@@ -207,48 +207,46 @@ async def generate_routes_from_schema(schema: SchemaModel):
 
 
 
-    # Route to add an item inside any schema
+
     @app.post(f"/{schema_name}/", tags=[schema_name])
     async def add_item(item_data: CustomModel = Body(...)) -> Dict[str, Any]:
-        async def fetch_schema_definition(schema_name: str) -> SchemaModel:
-            # Fetch the schema definition from the database
-            schema_definition = await collection.find_one({"schema_name": schema_name})
-            if schema_definition:
-                return SchemaModel(**schema_definition)
-            else:
-                return None
+            async def fetch_schema_definition(schema_name: str) -> SchemaModel:
+                # Fetch the schema definition from the database
+                schema_definition = await collection.find_one({"schema_name": schema_name})
+                if schema_definition:
+                    return SchemaModel(**schema_definition)
+                else:
+                    raise HTTPException(status_code=404, detail="Schema not found")
 
-        # Retrieve the schema definition
-        schema_definition = await fetch_schema_definition(schema_name)
-        if not schema_definition:
-            raise HTTPException(status_code=404, detail="Schema not found")
+            # Retrieve the schema definition
+            schema_definition = await fetch_schema_definition(schema_name)
 
-        # Validate uniqueness constraints for fields with unique=True
-        for field in schema_definition.fields:
-            if field.unique:
-                # Check if the value already exists in the collection for fields with unique constraint
-                existing_item = await db[schema_name].find_one({field.col_name: item_data.dict().get(field.col_name)})
-                if existing_item:
-                    raise HTTPException(status_code=400, detail=f"{field.col_name} must be unique")
+            # Add the "modified_date" field with the current date
+            modified_date = datetime.now().strftime("%d/%m/%Y")
+            item_data_dict = item_data.dict()
+            item_data_dict["modified_date"] = modified_date
 
-        # Validate allowed values for specific fields
-        for field in schema_definition.fields:
-            if field.allowed_values:
-                field_value = item_data.dict().get(field.col_name)
-                if field_value not in field.allowed_values:
-                    raise HTTPException(status_code=400, detail=f"Invalid value for {field.col_name}")
+            # Validate uniqueness constraints, allowed values, and dict field keys
+            for field in schema_definition.fields:
+                if field.unique:
+                    existing_item = await db[schema_name].find_one({field.col_name: item_data_dict[field.col_name]})
+                    if existing_item:
+                        raise HTTPException(status_code=400, detail=f"{field.col_name} must be unique")
 
-        # Validate dict field keys against specified dict_keys
-        for field in schema_definition.fields:
-            if field.type == "dict" and field.dict_keys:
-                field_value = item_data.dict().get(field.col_name, {})
-                for key in field_value.keys():
-                    if key not in field.dict_keys:
-                        raise HTTPException(status_code=400, detail=f"Invalid key for {field.col_name}: {key}")
+                if field.allowed_values:
+                    if item_data_dict[field.col_name] not in field.allowed_values:
+                        raise HTTPException(status_code=400, detail=f"Invalid value for {field.col_name}")
 
-        # Insert the item data into the collection
-        await db[schema_name].insert_one(item_data.dict())
-        return {"message": "Item added successfully"}
+                if field.type == "dict" and field.dict_keys:
+                    field_value = item_data_dict.get(field.col_name, {})
+                    for key in field_value.keys():
+                        if key not in field.dict_keys:
+                            raise HTTPException(status_code=400, detail=f"Invalid key for {field.col_name}: {key}")
+
+            # Insert the item data into the collection
+            await db[schema_name].insert_one(item_data_dict)
+            return {"message": "Item added successfully"}
+
 
     # Route to update an item in a schema
     @app.put(f"/{schema_name}/{{id}}", tags=[schema_name])
@@ -329,3 +327,40 @@ async def get_schema_names_with_date(page: int = Query(1, gt=0), page_size: int 
         "total_pages": total_pages,
         "current_page": page
     }
+
+async def export_data_to_csv(schema_name: str, date: str) -> str:
+    # Query MongoDB for documents with matching date
+    lcollection = db[schema_name]
+    data_cursor = lcollection.find({"modified_date": date})
+
+    # Convert the cursor to a list of documents
+    data = await data_cursor.to_list(length=None)
+
+    if not data:
+        raise HTTPException(status_code=404, detail="No data found for the provided date")
+
+    # Convert the data to a DataFrame
+    df = pd.DataFrame(data)
+
+    # Format date to ensure a valid file name
+    formatted_date = date.replace('/', '_')
+
+    # Generate file name based on schema name and date
+    csv_filename = f"{schema_name}_{formatted_date}.csv"
+
+    # Export the DataFrame to a CSV file
+    df.to_csv(csv_filename, index=False)
+
+    return csv_filename
+
+
+@app.get("/export-csv/", tags=["Export"])
+async def export_csv(schema_name: str = Query(..., title="Schema Name", description="Name of the schema to export data from"),
+                     date: str = Query(..., title="Date", description="Date in the format DD/MM/YYYY")):
+    try:
+        # Call the export_data_to_csv function to export data to CSV
+        csv_filename = await export_data_to_csv(schema_name, date)
+        return {"message": "Data exported successfully", "file_name": csv_filename}
+    except Exception as e:
+        # Handle any exceptions and return appropriate response
+        return {"error": str(e)}

@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f7f7f7;
+            color: #333;
+        }
+
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 200px;
+            background-color: #0d1a26;
+            color: #fff;
+            padding: 20px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+        }
+
+        .sidebar h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #FFA500;
+        }
+
+        .sidebar-links {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .sidebar-link {
+            margin-bottom: 15px;
+        }
+
+        .sidebar-link a {
+            color: #fff;
+            text-decoration: none;
+            font-size: 18px;
+            transition: color 0.3s ease;
+            display: flex;
+            align-items: center;
+        }
+
+        .sidebar-link a:hover {
+            color: #FFD700;
+        }
+
+        .sidebar-link a i {
+            margin-right: 10px;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 20px;
+            margin-left: 250px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        th,
+        td {
+            border: 1px solid #dee2e6;
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #0d1a26;
+            color: #fff;
+        }
+
+        .action-icons {
+            display: flex;
+            align-items: center;
+        }
+
+        .action-icons i {
+            margin-right: 10px;
+            font-size: 20px;
+            cursor: pointer;
+            border-radius: 50%;
+            padding: 8px;
+            color: #fff;
+            background-color: #FFA500;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        .action-icons i:hover {
+            background-color: #000;
+        }
+
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 1px solid #000;
+            background-color: #fff;
+            padding: 20px;
+            z-index: 9999;
+            width: 70%;
+            height: 70%;
+            max-width: 800px;
+            max-height: 600px;
+            overflow: auto;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 9998;
+        }
+
+        .close-icon {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+            font-size: 20px;
+            color: #000;
+            transition: color 0.3s ease;
+        }
+
+        .close-icon:hover {
+            color: #FFA500;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="sidebar">
+            <h1>Masterlist</h1>
+            <ul class="sidebar-links">
+                <li class="sidebar-link">
+                    <a href="#">
+                        <i class="fas fa-home"></i> 
+                        <span>Home</span>
+                    </a>
+                </li>
+                <li class="sidebar-link">
+                    <a href="#">
+                        <i class="fas fa-plus"></i> 
+                        <span>Add Schema</span>
+                    </a>
+                </li>
+                <li class="sidebar-link">
+                    <a href="#" onclick="showSchemas()">
+                        <i class="fas fa-list"></i> 
+                        <span>All Schemas</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <div class="main-content">
+            <div id="schemasSection" style="display: none;">
+                <h1>List of Schemas</h1>
+                <table id="schemaTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>S.No</th>
+                            <th>Schema Name</th>
+                            <th>Created At</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="schemaList">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="popup" id="editPopup">
+        <span class="close-icon" onclick="hidePopup()">&times;</span>
+        <iframe id="editFrame" width="100%" height="100%" frameborder="0"></iframe>
+    </div>
+
+    <div class="popup" id="exportPopup">
+        <span class="close-icon" onclick="hidePopup()">&times;</span>
+        <iframe id="exportFrame" width="100%" height="100%" frameborder="0"></iframe>
+    </div>
+
+    <div class="popup" id="importPopup">
+        <span class="close-icon" onclick="hidePopup()">&times;</span>
+        <iframe id="importFrame" src="import.html" width="100%" height="100%" frameborder="0"></iframe>
+    </div>
+
+    <div class="overlay" id="overlay" onclick="hidePopup()"></div>
+
+    <script>
+        let currentSchemaName = '';
+
+        function showSchemas() {
+            document.getElementById("schemasSection").style.display = "block";
+            fetchSchemas();
+        }
+
+        function fetchSchemas() {
+            fetch('http://localhost:9000/get-schema-names-with-date')
+                .then(response => response.json())
+                .then(data => {
+                    const schemaList = document.getElementById("schemaList");
+                    schemaList.innerHTML = '';
+                    data.schemas.forEach((schema, index) => {
+                        const row = document.createElement("tr");
+                        row.innerHTML = `
+                            <td>${index + 1}</td>
+                            <td>${schema.schema_name}</td>
+                            <td>${schema.created_at}</td>
+                            <td>
+                                <div class="action-icons">
+                                    <i class="fas fa-edit" onclick="openEditPage('${schema.schema_name}')"></i>
+                                    <i class="fas fa-file-import" onclick="openImportPage('${schema.schema_name}')"></i>
+                                    <i class="fas fa-file-export" onclick="openExportPage('${schema.schema_name}')"></i>
+                                </div>
+                            </td>
+                        `;
+                        schemaList.appendChild(row);
+                    });
+                    const schemaTable = document.getElementById("schemaTable");
+                    schemaTable.style.display = "table";
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+        }
+
+        function openEditPage(schemaName) {
+            currentSchemaName = schemaName;
+            const editFrame = document.getElementById('editFrame');
+            editFrame.src = `edit-final.html?schema_name=${schemaName}&api_url=http://localhost:9000/getfields/${schemaName}&replace_api_url=http://localhost:9000/replacefields/${schemaName}`;
+            document.getElementById('editPopup').style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+        }
+
+        function openExportPage(schemaName) {
+            currentSchemaName = schemaName;
+            const exportFrame = document.getElementById('exportFrame');
+            exportFrame.src = `export.html?schema_name=${schemaName}`;
+            document.getElementById('exportPopup').style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+        }
+
+        function openImportPage(schemaName) {
+            currentSchemaName = schemaName;
+            const importFrame = document.getElementById('importFrame');
+            importFrame.src = `import.html?schema_name=${schemaName}`;
+            document.getElementById('importPopup').style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+        }
+
+        function hidePopup() {
+            document.querySelectorAll('.popup').forEach(popup => popup.style.display = 'none');
+            document.getElementById('overlay').style.display = 'none';
+        }
+    </script>
+
+</body>
+
+</html>

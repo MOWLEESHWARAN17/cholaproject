@@ -1,0 +1,221 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Schema</title>
+    <style>
+        /* Your CSS styles here */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        label {
+            font-weight: bold;
+        }
+        input[type="text"], select, button {
+            width: calc(100% - 20px);
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        .fieldName {
+            width: calc(10% - 10px);
+        }
+
+        .fieldType {
+            width: calc(30% - 20px);
+            margin-right: 8cm;
+        }
+
+        .fieldElements, .dictKeys {
+            display: none; /* Initially hide the elements input */
+        }
+
+        .field-group {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        .field-group label,
+        .field-group select,
+        .field-group input,
+        .field-group button {
+            margin-right: 20px;
+        }
+        .field-group input[type="checkbox"] {
+            margin-left: auto;
+        }
+        button {
+            background-color: #0d1a26;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #FFA500;
+        }
+        .response {
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Add Schema</h2>
+        <form id="addSchemaForm">
+            <label for="schemaName">Schema Name:</label>
+            <input type="text" id="schemaName" required>
+            <div id="fieldsContainer"></div>
+            <button type="button" onclick="addField()">Add Field</button>
+            <button type="submit">Submit</button>
+        </form>
+        <div class="response" id="responseMessage"></div>
+    </div>
+
+    <script>
+        function addField() {
+            const fieldsContainer = document.querySelector("#fieldsContainer");
+
+            const fieldGroup = document.createElement("div");
+            fieldGroup.classList.add("field-group");
+            fieldGroup.innerHTML = `
+                <label for="fieldName">Name:</label>
+                <input type="text" class="fieldName" required>
+                <label for="fieldType">Type:</label>
+                <select class="fieldType" required onchange="showElementsInput(this)">
+                    <option value="int">Integer</option>
+                    <option value="str">String</option>
+                    <option value="bool">Boolean</option>
+                    <option value="float">Float</option>
+                    <option value="list">List</option>
+                    <option value="dict">Dictionary</option>
+                </select>
+                <input type="text" class="fieldElements" placeholder="Enter elements (comma-separated)" style="display:none;">
+                <input type="text" class="dictKeys" placeholder="Enter dictionary keys (comma-separated)" style="display:none;">
+                <label for="fieldUnique" class="uniqueLabel">Unique:</label>
+                <input type="checkbox" class="fieldUnique">
+                <button type="button" onclick="removeField(this)">Remove</button>
+            `;
+            fieldsContainer.appendChild(fieldGroup);
+        }
+
+        function removeField(button) {
+            button.parentNode.remove();
+        }
+
+        function showElementsInput(select) {
+            const elementsInput = select.parentNode.querySelector('.fieldElements');
+            const dictKeysInput = select.parentNode.querySelector('.dictKeys');
+            const uniqueLabel = select.parentNode.querySelector('.uniqueLabel');
+            const fieldUnique = select.parentNode.querySelector('.fieldUnique');
+            if (select.value === 'list' || select.value === 'dict') {
+                // Hide the unique checkbox for list and dict types
+                uniqueLabel.style.display = 'none';
+                fieldUnique.style.display = 'none';
+                // Show the "Enter elements" input box for lists and dictionaries
+                if (select.value === 'list') {
+                    elementsInput.style.display = 'block';
+                    elementsInput.setAttribute('required', 'required');
+                    dictKeysInput.style.display = 'none';
+                    dictKeysInput.removeAttribute('required');
+                } else if (select.value === 'dict') {
+                    elementsInput.style.display = 'none';
+                    elementsInput.removeAttribute('required');
+                    dictKeysInput.style.display = 'block';
+                    dictKeysInput.setAttribute('required', 'required');
+                }
+            } else {
+                // Show the unique checkbox for other types
+                uniqueLabel.style.display = 'inline-block';
+                fieldUnique.style.display = 'inline-block';
+                elementsInput.style.display = 'none';
+                elementsInput.removeAttribute('required');
+                dictKeysInput.style.display = 'none';
+                dictKeysInput.removeAttribute('required');
+            }
+        }
+
+document.querySelector("#addSchemaForm").addEventListener("submit", async function(event) {
+            event.preventDefault();
+
+            const schemaName = document.querySelector("#schemaName").value;
+            const fields = [];
+document.querySelectorAll(".field-group").forEach(group => {
+                const fieldName = group.querySelector(".fieldName").value;
+                let fieldType = group.querySelector(".fieldType").value;
+                if (fieldType === 'list') {
+                    // If the field type is "List", store it as "list"
+                    fieldType = 'str';
+                }
+                const fieldUnique = group.querySelector(".fieldUnique").checked;
+                const fieldElements = group.querySelector(".fieldElements")?.value || null;
+                const dictKeys = group.querySelector(".dictKeys")?.value || null;
+                // Omit unique field if it's false
+                const fieldData = { col_name: fieldName, type: fieldType };
+                if (fieldUnique) {
+                    fieldData.unique = true;
+                }
+                if (fieldType === 'dict' && dictKeys) {
+                    // Parse dictionary keys and values
+                    const keysValues = dictKeys.split(',');
+                    const dictObj = {};
+                    keysValues.forEach(keyValue => {
+                        const [key, value] = keyValue.split(':');
+                        dictObj[key.trim()] = value.trim();
+                    });
+                    fieldData.dict_keys = dictObj;
+                } else if (fieldElements) {
+                    fieldData.allowed_values = fieldElements.split(',');
+                }
+
+                fields.push(fieldData);
+            });
+
+            const data = { schema_name: schemaName, fields: fields };
+
+            try {
+                const response = await fetch("http://localhost:9000/add-schema/", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch');
+                }
+
+                const responseMessage = document.querySelector("#responseMessage");
+                responseMessage.textContent = "Schema added successfully";
+                responseMessage.style.color = "green";
+                // Optionally, clear the form
+                document.querySelector("#schemaName").value = "";
+document.querySelectorAll(".field-group").forEach(group => group.remove());
+            } catch (error) {
+                console.error('Error occurred:', error);
+                const responseMessage = document.querySelector("#responseMessage");
+                responseMessage.textContent = "Error occurred while submitting the form";
+                responseMessage.style.color = "red";
+            }
+        });
+    </script>
+
+</body>
+</html>

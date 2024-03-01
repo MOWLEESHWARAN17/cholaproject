@@ -1,0 +1,7 @@
+1. Required fields
+2. colection for list
+3. validators (date,time,date-time,email,phone,pincode etc)
+4. Export ( date range, particular fields)
+5. Filters (date range)
+   Age range
+   Multiple search

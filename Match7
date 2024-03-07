@@ -1,0 +1,103 @@
+from typing import List, Dict, Any, Union, Optional
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, ValidationError
+from datetime import datetime
+from motor.motor_asyncio import AsyncIOMotorClient
+
+app = FastAPI()
+
+# Initialize MongoDB client and database
+client = AsyncIOMotorClient("mongodb://localhost:27017/")
+db = client["databasename"]
+collection = db["masterlist"]
+
+class SchemaModel(BaseModel):
+    schema_name: str
+    fields: List[Dict[str, Any]] 
+    created_by:Optional[str]
+    modified_by:Optional[str]
+
+class FieldModel(BaseModel):
+    col_name: str
+    type: Union[str, int, float, bool,List[str],List[dict],Dict[str, Any]]
+    required: Optional[bool]
+    export: Optional[bool]
+    unique: Optional[bool]
+    allowed_values: Optional[List[str]] = None
+    dict_keys: Optional[Dict[str, str]] = None
+
+@app.post("/add-schema/", tags=["Common routes"])
+async def add_schema(schema_data: SchemaModel) -> Dict[str, Any]:
+
+    schema_name = schema_data.schema_name.lower()
+
+    if " " in schema_name:
+        raise HTTPException(status_code=400, detail="Schema name cannot contain spaces")
+
+    existing_schema = await collection.find_one({"schema_name": schema_name})
+    if existing_schema:
+        raise HTTPException(status_code=400, detail="Schema with the same name already exists")
+    
+    error_details = []
+    try:
+        # Validate the schema data against SchemaModel
+        schema_data = SchemaModel(**schema_data.dict())
+    except ValidationError as e:
+        error_messages = ", ".join([f"{error['loc'][0]} - {error['msg']}" for error in e.errors()])
+        raise HTTPException(status_code=400, detail=f"Validation error(s): {error_messages}")
+
+    for field_data in schema_data.fields:
+        field_model_keys = FieldModel.__fields__.keys()
+        missing_required_fields = [key for key in field_model_keys if key not in field_data.keys() and field_info := FieldModel.__fields__[key].field_info and field_info.required]
+
+        if missing_required_fields:
+          error_details.append(f"Missing required field(s) in FieldModel: {', '.join(missing_required_fields)}")
+
+        for key, value in field_data.items():
+               if key in FieldModel.__fields__:
+                    if not value and FieldModel.__fields__[key].required:
+                         error_details.append(f"{key.capitalize().replace('_', ' ')} is required")
+               else:
+                    error_details.append(f"Invalid field name: '{key}'")
+
+        if "type" in field_data and field_data["type"] == "List[str]":
+            # Check if field type is List[str] and allowed values are provided
+            if "allowed_values" not in field_data or len(field_data["allowed_values"]) < 2:
+                error_details.append("List[str] type must have minimum 2 allowed values")
+        elif "allowed_values" in field_data:
+            # Check if allowed values are provided for non-List fields
+            error_details.append("only List[str] type accepts allowed values")
+
+        if "type" in field_data and field_data["type"] == "dict":
+            # Check if field type is dict and dict keys are provided
+            if "dict_keys" not in field_data or not field_data["dict_keys"] or not isinstance(field_data["dict_keys"], dict) or len(field_data["dict_keys"]) == 0:
+                error_details.append("dict type must have minimum one dict_keys")
+
+        for key in field_data.keys():
+            if key not in FieldModel.__fields__:
+                error_details.append(f"Invalid field name: '{key}'")
+
+    if error_details:
+        raise HTTPException(status_code=400, detail={"detail": ", ".join(error_details)})
+
+    # Get current datetime in ISO 8601 format
+    current_datetime = datetime.now().isoformat()
+    
+    if schema_data.created_by:
+          created_by=schema_data.created_by
+    else:
+          created_by="default"
+
+    modified_by=created_by
+        # Construct schema document
+    schema_doc = {
+        "schema_name": schema_data.schema_name,
+        "fields": schema_data.fields,
+        "created_at": current_datetime,
+        "created_by": created_by,
+        "modified_at": current_datetime,
+        "modified_by": modified_by
+    }
+    # Add schema to the database
+    await collection.insert_one(schema_doc)
+    return {"message": "Schema added successfully"}

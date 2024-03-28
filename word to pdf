@@ -1,0 +1,71 @@
+from fastapi import FastAPI, File, UploadFile, HTTPException, Response
+import shutil
+import os
+import comtypes
+import comtypes.client
+import tempfile
+from fastapi.middleware.cors import CORSMiddleware
+import io
+
+app = FastAPI()
+
+# Constants for file formats
+wdFormatPDF = 17
+
+def convert_to_pdf(input_path, output_path):
+    word_app = comtypes.client.CreateObject('KWPS.Application')
+    try:
+        docum = word_app.Documents.Open(input_path, OpenAndRepair=True)
+    except comtypes.COMError as e:
+        raise HTTPException(status_code=400, detail=f"Error opening the document: {e}")
+
+    try:
+        docum.SaveAs(output_path, FileFormat=wdFormatPDF)
+        print("Converted Successfully")
+        return True
+    except comtypes.COMError as e:
+        raise HTTPException(status_code=400, detail=f"Error saving the document as PDF: {e}")
+    finally:
+        print("Finally Inside")
+        docum.Close()
+        print("Document Closed")
+        word_app.Quit()
+        print("Word Closed")
+
+@app.post("/convert/")
+async def convert_file(file: UploadFile = File(...)):
+    # Create a temporary directory to store the files
+    temp_dir = tempfile.mkdtemp()
+    input_file_path = os.path.join(temp_dir, file.filename)
+    output_file_path = os.path.splitext(input_file_path)[0] + ".pdf"
+    print(input_file_path,output_file_path)
+
+    # Save the uploaded file
+    with open(input_file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # Convert the Word document to PDF
+    try:
+        if convert_to_pdf(input_file_path, output_file_path):
+            # Delete the uploaded Word file
+            os.remove(input_file_path)
+            # Return the PDF file as a downloadable response
+            with open(output_file_path, "rb") as pdf_file:
+                pdf_content = pdf_file.read()
+            response = Response(content=pdf_content, media_type="application/pdf")
+            response.headers["Content-Disposition"] = f"attachment; filename={file.filename}.pdf"
+            return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Remove the temporary directory
+        shutil.rmtree(temp_dir)
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
